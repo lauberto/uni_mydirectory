@@ -1,0 +1,421 @@
+---
+title: "Analysis of Hate Speech Tweets from HASOC conference"
+author: "Andrea Grillandi"
+date: "6/6/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+**Importing libraries**
+```{r}
+library("tidyverse")
+library("readr")
+library("party")
+library("stats")
+library("caret")
+library("pROC")
+library("lme4")
+library("lmerTest")
+```
+
+## 1. Introduction - Research objectives and hypothesis
+Hate speech is a phenomenon strongly associated to the Internet and, more specifically, to social networks. Hate Speech can be defined as any sort of expression intended to cause offense or harm, basing on sexual orientation, political affiliation, religious beliefs or any other kind of social identifier. This is just a partial definition of the phenomenon, a more detailed explanation can be found on Rahman (2020).  
+### HASOC
+HASOC is a Shared Task on Hate Speech and Offensive Content Identification in Indo-European Languages, which was launched in 2019 (hasocfire). The task is intended to stimulate research in Hate Speech automatic detection. It is based on 3 annotated datasets for English, German and Hindi languages. The texts were manually annotated by two groups of human supervisors, according to the official paper of the shared task conference (Thomas Mandl et al., 2019).
+The idea for this reasearch stems from a personal interest for automatic analysis of written text extracted from social media and, in general, from a fascination for the idea of social networks as a mirror of people's sentiments that can be more or less automatically analysed.    
+
+### Hypothesis
+In this paper, I am going to test whether a text that was identified as containing Hate Speech presents different linguistic parameters, such as noun frequency, than a text which does not contain Hate Speech. In a similar fashion, I am going to test the hypothesis that hateful texts contain more misspells than non-hateful texts. Two-sample unpaired t-test will be run on the parameters of the dataset to compare Hate Speech and non-Hate-Speech texts. Further, the parameters are passed to a Random Forest classifier and their *feature importance* is measured. In this research, only English and German datasets were considered, so to simplify the preprocessing part.
+
+
+
+## 2. Research Design
+Data from HASOC consists of posts that were extracted from Twitter and Facebook for all the three languages, according to keywords and hashtags with offensive content. Texts from the English and German datasets were preprocessed to extract parameters that were then used for statistical testing and for the Random Forest classification model.
+
+### Formal hypotheses
+First of all I am going to test whether hateful posts contain more misspells than non-hateful ones. I will test this hypothesis using a two-sample unpaired t-test, as the sample sizes are unequal (2261 for hateful text). The hypothesis is based on the fact that the user writing such hateful posts might be in an emotional state that might lead him or her to mistype some words.
+H0: $misspell\_count_{NOT} \lt misspell\_count_{HOF}$,  
+H1: $misspell\_count_{NOT} \gt misspell\_count_{HOF}$,   
+where NOT stands for non-hateful content and HOF for hateful content.  
+
+Further, I will run an unpaired t-test for every linguistical parameter that was extracted during the preprocessing: punctuation, noun, proper noun, adjective and verb frequencies in the texts. I will consider a one-tailed t-test.
+H0: $param\_frequency_{NOT} \lt param\_frequency_{HOF}$,  
+H1: $param\_frequency_{NOT} \gt param\_frequency_{HOF}$.  
+
+Eventually, I will train a random forest classifier using the function *cforest* from *party* R library. The parameters passed to the classifier will be the ones which were already presented above in the text (misspells frequency, linguistic param frequency). After that, I will run the *varimp* function on the model to get an overview of the interaction of the parameters.   
+
+
+## 3. Data collection method
+Datasets and Python code used for the preprocessing are accesible through github (link in Bibliography). Datasets for English and German language in tsv format were downloaded directly from the HASOC Shared Task website (link in Bibliography). The posts in the two datasets were further processed using Python.
+
+### Preprocessing
+Posts from the datasets were cleaned urls and usernames beginning with an address sign (@). Subsequently, punctuation frequency, which is punctuation count over text length was calculated.  
+Later on, I ran a spellchecker on each text using Python library pyspellchecker, which is language independent. The function from this library is based on Peter Norvig's spellchecking algorithm (link to library in Bibligraphy). Misspells were counted and then frequency related to text length was calculated.  
+The last step was running a POS tagger on the posts. For English I used nltk *pos_tag* function. In the table below, an overview of the tags that were included in the groups of nouns, proper nouns, adjectives, and verbs, respectively. Again, the count of each of the 4 group was then divided by the text length.
+
+| POS tags | description            |
+|----------|------------------------|
+| NN       | singular noun          |
+| NNS      | plural noun            |
+|---------------------------------- |
+| NNP      | singular proper noun   |
+| NNPS     | plural proper noun     |
+|-----------------------------------|
+| JJ       | adjective              |
+| JJR      | comparative adjective  |
+| JJS      | superlative adjective  |
+|-----------------------------------|
+| VB       | verb, base form        |
+| VBD      | verb, past tense       |
+| VBG      | verb, gerund           |
+| VBN      | verb, past participle  |
+| VBP      | verb, present          |
+| VBZ      | verb, present 3rd pers |
+|-----------------------------------|
+
+The same was done for German posts. This time I used Python library HanTa, which contains a function for-POS tagging for German language (link in Bibliography). In the table below an overview of the tags that were considered as nouns, proper nouns, adjectives, or verbs.
+
+nouns_ger = ['NA', 'NN']
+proper_nouns_ger = ['NE']
+adjectives_ger = ['ADJA', 'ADJD']
+verbs_ger = ['VVFIN', 'VVIMP', 'VVINF', 'VVPP']
+
+| POS tags | description            |
+|----------|------------------------|
+| NA       | adjective used as noun |
+| NN       | noun                   |
+|---------------------------------- |
+| NE       | proper noun            |
+|-----------------------------------|
+| ADJA     | attributive adjective  |
+| ADJD     | predicative adjective  |
+|-----------------------------------|
+| VVFIN    | finite                 |
+| VVIMP    | imperative             |
+| VVINF    | infinitive             |
+| VVPP     | past participle        |
+|-----------------------------------|
+
+All the parameters were organized in two new tsv tables (one for each language) and further used for statistical analysis.
+
+## 4. Data description
+HASOC datasets were annotated for three different tasks. However, this research is based on the annotation that was produced only for the first of this tasks. Task 1 was offered for all the three languages. According to Mandl T. et al. it is a coarse-grained binary classification in which participants are required to classify posts into two classes,
+namely: Hate and Offensive (HOF) and Non-Hate and offensive (NOT). During the annotation, posts were labeled as HOF if they contained Hate Speech, aggression or profanity, otherwised there were labeled as NOT.  
+
+The classes in English and German datasets are unbalanced. As shown by the code below, the English dataset presents 3951 non-offensive posts, and 2261 offensive ones. While the German dataset presents 3411 non-offensive cases, and 407 offensive ones. Further, as stated above in the paper, various parameters were extracted from the texts and presented in the dataframes in the form of relative frequencies, the values of which range from 0 to 1. Absolute text length was also added to the datasets.   
+
+A frequency higher than 1 in punct_freq means that in the post there were more punctuation signs than words the tokenizer could catch.
+
+Below the summaries of the datasets follow.  
+
+*English dataset*
+```{r}
+df_eng <- read.csv("https://raw.githubusercontent.com/lauberto/uni_mydirectory/master/data_analysis/preprocessed_datasets/english_dataset_project.tsv", sep="\t")
+df_eng <- df_eng[df_eng$task_1 != "task_1",]
+df_eng <- droplevels(df_eng)
+df_eng <- subset(df_eng, select = -c(X, text, task_2, task_3))
+df_eng["language"] = "eng"
+df_eng$language <- as.factor(df_eng$language)
+summary(df_eng)
+```
+
+*German dataset*
+```{r}
+df_de <- read.csv("https://raw.githubusercontent.com/lauberto/uni_mydirectory/master/data_analysis/preprocessed_datasets/german_dataset_project.tsv", sep="\t")
+df_de <- df_de[df_de$task_1 != "task_1",]
+df_de <- droplevels(df_de)
+df_de <- subset(df_de, select = -c(X, text, task_2, task_3))
+df_de["language"] = "de"
+df_de$language <- as.factor(df_de$language)
+summary(df_de)
+```
+
+*Full dataset*
+```{r}
+full_df <- rbind(df_eng, df_de)
+summary(full_df)
+```
+
+## 5. Exploratory data analysis, descriptive statistics and visualization.
+
+### Parameters correlation visualization
+So to have a general idea of the distribution of data, boxplots of the distribution of various parameters in German and English will be shown. 
+
+*Frequency of misspells*
+```{r}
+p_punct <- ggplot(full_df, aes(x=language, y=misspell_count, fill=task_1))
+dodge <- position_dodge(width=1) 
+p_punct + geom_violin(size=0.6, color="grey30", position=dodge) +
+geom_boxplot(width=0.4, size=0.6, color="grey10", position=dodge, color="grey") +
+facet_grid(cols = vars(language), scales="free", space="free") +
+theme(
+    strip.text.x = element_text(
+      size = 10, face = "bold"
+      ),
+    strip.text.y = element_text(
+      size = 10, face = "bold"
+      )
+)
+```
+
+*Frequency of punctuation*
+```{r}
+p_punct <- ggplot(full_df, aes(x=language, y=punct_freq, fill=task_1))
+dodge <- position_dodge(width=1) 
+p_punct + geom_violin(size=0.6, color="grey30", position=dodge) +
+geom_boxplot(width=0.4, size=0.6, color="grey10", position=dodge, color="grey") +
+facet_grid(cols = vars(language), scales="free", space="free") +
+theme(
+    strip.text.x = element_text(
+      size = 10, face = "bold"
+      ),
+    strip.text.y = element_text(
+      size = 10, face = "bold"
+      )
+    )
+```
+
+*Frequency of nouns*
+```{r}
+p_punct <- ggplot(full_df, aes(x=language, y=noun_freq, fill=task_1))
+dodge <- position_dodge(width=1) 
+p_punct + geom_violin(size=0.6, color="grey30", position=dodge) +
+geom_boxplot(width=0.4, size=0.6, color="grey10", position=dodge, color="grey") +
+facet_grid(cols = vars(language), scales="free", space="free") +
+theme(
+    strip.text.x = element_text(
+      size = 10, face = "bold"
+      ),
+    strip.text.y = element_text(
+      size = 10, face = "bold"
+      )
+    )
+```
+
+*Frequency of proper nouns*
+```{r}
+p_punct <- ggplot(full_df, aes(x=language, y=propnoun_freq, fill=task_1))
+dodge <- position_dodge(width=1) 
+p_punct + geom_violin(size=0.6, color="grey30", position=dodge) +
+geom_boxplot(width=0.4, size=0.6, color="grey10", position=dodge, color="grey") +
+facet_grid(cols = vars(language), scales="free", space="free") +
+theme(
+    strip.text.x = element_text(
+      size = 10, face = "bold"
+      ),
+    strip.text.y = element_text(
+      size = 10, face = "bold"
+      )
+    )
+```
+
+*Frequency of adjectives*
+```{r}
+p_punct <- ggplot(full_df, aes(x=language, y=adj_freq, fill=task_1))
+dodge <- position_dodge(width=1) 
+p_punct + geom_violin(size=0.6, color="grey30", position=dodge) +
+geom_boxplot(width=0.4, size=0.6, color="grey10", position=dodge, color="grey") +
+facet_grid(cols = vars(language), scales="free", space="free") +
+theme(
+    strip.text.x = element_text(
+      size = 10, face = "bold"
+      ),
+    strip.text.y = element_text(
+      size = 10, face = "bold"
+      )
+    )
+```
+
+*Frequency of verbs*
+```{r}
+p_punct <- ggplot(full_df, aes(x=language, y=verb_freq, fill=task_1))
+dodge <- position_dodge(width=1) 
+p_punct + geom_violin(size=0.6, color="grey30", position=dodge) +
+geom_boxplot(width=0.4, size=0.6, color="grey10", position=dodge, color="grey") +
+facet_grid(cols = vars(language), scales="free", space="free") +
+theme(
+    strip.text.x = element_text(
+      size = 10, face = "bold"
+      ),
+    strip.text.y = element_text(
+      size = 10, face = "bold"
+      )
+    )
+```
+
+*Text length*
+```{r}
+p_punct <- ggplot(full_df, aes(x=language, y=text_length, fill=task_1))
+dodge <- position_dodge(width=1) 
+p_punct + geom_violin(size=0.6, color="grey30", position=dodge) +
+geom_boxplot(width=0.4, size=0.6, color="grey10", position=dodge, color="grey") +
+facet_grid(cols = vars(language), scales="free", space="free") +
+theme(
+    strip.text.x = element_text(
+      size = 10, face = "bold"
+      ),
+    strip.text.y = element_text(
+      size = 10, face = "bold"
+      )
+    )
+```
+
+#### Commentary on the graphs
+By looking at the boxplots above, there seems not to be a sharp difference in the distribution of the parameters in relation with the presence or not of Hate Speech in the text. The only feature that seems to present a slightly sharper difference in the two classes is text length in German texts.
+
+### Correlation between text length and misspell frequency
+```{r}
+ggplot(df_eng, aes(x=text_length, y=misspell_count, fill=task_1)) + geom_point(aes(color=task_1)) + geom_smooth(method=lm) + ggtitle("Text length and misspell frequency in English posts") 
+```
+
+```{r}
+cor.test(df_eng$misspell_count, df_eng$text_length)
+```
+
+```{r}
+ggplot(df_de, aes(x=text_length, y=misspell_count)) + geom_point(aes(color=task_1)) + geom_smooth(method=lm) + ggtitle("Text length and misspell frequency in German posts")
+```
+```{r}
+cor.test(df_de$misspell_count, df_de$text_length)
+```
+
+#### Comment on text length and misspell frequency correlation
+There seems not to be a strong correlation, as correlation tests also show. However, by looking at the graph one has the impression that the longer the text, the less the variance in the value of frequency of misspells. Moreover, there seems not to be a strong difference in how the two parameters are distributed across the two classes of hateful and non-hateful speech.
+
+
+## 6. Statistical tests and modeling results
+As stated above, I will run an unpaired t-test on all the dataset parameters, trying to compare the two classes of hateful and non-hateful posts. First of all, I will present the results regarding the English dataset. When comparing the frequency of mistakes in text I will run a one-tailed t-test, with the null hypothesis that the frequency of mistakes is higher in posts containing Hate Speech, because of the emotional state the user is in when writing the post (check the hypotheses section). Then, I will run a two-tailed t-test when comparing all the other parameter, with the null-hypothesis that parameters are equal both in the HOF subset and the NOT one, to verify whther this assumption holds or not.   
+
+### t-testing on the English dataset
+```{r}
+df_eng_HOF <- df_eng[df_eng$task_1 == "HOF",]
+df_eng_NOT <- df_eng[df_eng$task_1 == "NOT",]
+```
+*t-test on misspell frequency*
+H0: $misspell\_count_{NOT} \lt misspell\_count_{HOF}$
+H1: $misspell\_count_{NOT} \gt misspell\_count_{HOF}$
+```{r}
+t.test(df_eng_NOT$misspell_count, df_eng_HOF$misspell_count, alternative = "less", var.equal = FALSE)
+```
+H0: $param\_count_{NOT} = param\_count_{HOF}$
+H1: $param\_count_{NOT} = param\_count_{HOF}$
+*Frequency of punctuation*
+```{r}
+t.test(df_eng_NOT$punct_freq, df_eng_HOF$punct_freq, var.equal = FALSE)
+```
+*Text length*
+```{r}
+t.test(df_eng_NOT$text_length, df_eng_HOF$text_length, var.equal = FALSE)
+```
+
+*Frequency of nouns*
+```{r}
+t.test(df_eng_NOT$noun_freq, df_eng_HOF$noun_freq, var.equal = FALSE)
+```
+
+*Frequency of proper nouns*
+```{r}
+t.test(df_eng_NOT$propnoun_freq, df_eng_HOF$propnoun_freq, var.equal = FALSE)
+```
+
+*Frequency of adjectives*
+```{r}
+t.test(df_eng_NOT$adj_freq, df_eng_HOF$adj_freq, var.equal = FALSE)
+```
+
+*Frequency of verbs*
+```{r}
+t.test(df_eng_NOT$verb_freq, df_eng_HOF$verb_freq, var.equal = FALSE)
+```
+
+### t-testing on the German dataset
+```{r}
+df_de_HOF <- df_de[df_de$task_1 == "HOF",]
+df_de_NOT <- df_de[df_de$task_1 == "NOT",]
+```
+*t-test on misspell frequency*
+H0: $misspell\_count_{NOT} \lt misspell\_count_{HOF}$
+H1: $misspell\_count_{NOT} \gt misspell\_count_{HOF}$
+```{r}
+t.test(df_de_NOT$misspell_count, df_de_HOF$misspell_count, alternative = "less", var.equal = FALSE)
+```
+H0: $param\_count_{NOT} = param\_count_{HOF}$
+H1: $param\_count_{NOT} = param\_count_{HOF}$
+*Frequency of punctuation*
+```{r}
+t.test(df_de_NOT$punct_freq, df_de_HOF$punct_freq, var.equal = FALSE)
+```
+*Text length*
+```{r}
+t.test(df_de_NOT$text_length, df_de_HOF$text_length, var.equal = FALSE)
+```
+
+*Frequency of nouns*
+```{r}
+t.test(df_de_NOT$noun_freq, df_de_HOF$noun_freq, var.equal = FALSE)
+```
+
+*Frequency of proper nouns*
+```{r}
+t.test(df_de_NOT$propnoun_freq, df_de_HOF$propnoun_freq, var.equal = FALSE)
+```
+
+*Frequency of adjectives*
+```{r}
+t.test(df_de_NOT$adj_freq, df_de_HOF$adj_freq, var.equal = FALSE)
+```
+
+*Frequency of verbs*
+```{r}
+t.test(df_de_NOT$verb_freq, df_de_HOF$verb_freq, var.equal = FALSE)
+```
+```{r}
+# t.test(df_eng_HOF$noun_freq, df_eng_HOF$adj_freq,
+#        paired = TRUE)
+```
+```{r}
+
+```
+```{r}
+
+```
+
+### two-sample t-test on misspell count for English language
+<!-- H0: $misspell\_count_{NOT} \lt misspellcount_{HOF}$ -->
+<!-- H1: $misspell\_count_{NOT} \gt misspellcount_{HOF}$ -->
+```{r}
+df_eng_HOF <- df_eng[df_eng$task_1 == "HOF",]
+df_eng_NOT <- df_eng[df_eng$task_1 == "NOT",]
+t.test(df_eng_NOT$misspell_count, df_eng_HOF$misspell_count, alternative = "less", var.equal = FALSE)#, alternative="less")
+```
+```{r}
+df_de_HOF <- df_de[df_de$task_1 == "HOF",]
+df_de_NOT <- df_de[df_de$task_1 == "NOT",]
+t.test(df_de_NOT$misspell_count, df_de_HOF$misspell_count, alternative = "less", var.equal = FALSE)#, alternative="less")
+```
+```{r}
+fit_eng <- cforest(task_1~misspell_count+noun_freq, data = df_eng, controls=cforest_unbiased(ntree=100, mtry=2))
+plot(fit_eng)
+# print(varimp(fit_eng))
+
+# predict(fit_eng, newdata = data.frame(misspell_count = 0.4, noun_freq = 0.3),OOB=TRUE)
+```
+```{r}
+fit_eng_tree <- ctree(task_1~misspell_count+noun_freq, data = df_eng)
+plot(fit_eng_tree)
+summary(df_eng)
+
+# predict(fit_eng, newdata = data.frame(misspell_count = 0.4, noun_freq = 0.3),OOB=TRUE)
+```
+# Bibliography
+ * hasocfire, https://hasocfire.github.io/hasoc/2019/call_for_participation.html
+ * Rahman, Md Ataur (2020). “Exploring Features for Multi-label Hate Speech Detection.”
+ * Thomas Mandl et al. (2019), "Overview of the HASOC track at FIRE 2019: Hate Speech and Offensive Content Identification in Indo-European Languages."
+ * HASOC website, https://hasocfire.github.io/hasoc/2019/dataset.html
+ * Github preprocessing link, https://github.com/lauberto/uni_mydirectory/tree/master/data_analysis
+ * Python spellchecker, https://pypi.org/project/pyspellchecker/
+ * Hannover POS tagger, http://textmining.wp.hs-hannover.de/Preprocessing.html
+```{r}
+
+```
