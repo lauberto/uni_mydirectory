@@ -17,24 +17,55 @@ library("caret")
 library("pROC")
 library("lme4")
 library("lmerTest")
+library(gridExtra)
+library(dplyr)
+library(arm)
+library(languageR)
+library(influence.ME)
+library(boot)
 ```
+*Function for accuracy testing*
+```{r}
+lrAcc <- function(lrMod, responseVar){
+  ## convert response variable into a factor if it's not one
+  if(!is.factor(model.frame(lrMod)[,responseVar])){
+    model.frame(lrMod)[,responseVar] <- as.factor(model.frame(lrMod)[,responseVar])
+  }
+    ## model predictions in log-odds
+    preds = predict(lrMod, newdata=model.frame(lrMod))
+    ## transform to 0/1 prediction
+    preds <- ((sign(preds)/2)+0.5)
+    
+    ## response variable values, transformed to 0/1
+    y <- (as.numeric(model.frame(lrMod)[,responseVar])-1)
+    
+    ## how often is prediction the same as the actual response
+    acc <- sum(preds==y)/length(preds)
+    
+    return(acc)
+}
+```
+This function was taken from http://people.linguistics.mcgill.ca/~morgan/book/mixed-effects-logistic-regression.html#evaluation-measures
 
 ## 1. Introduction - Research objectives and hypothesis
-Hate speech is a phenomenon strongly associated to the Internet and, more specifically, to social networks. Hate Speech can be defined as any sort of expression intended to cause offense or harm, basing on sexual orientation, political affiliation, religious beliefs or any other kind of social identifier. This is just a partial definition of the phenomenon, a more detailed explanation can be found on Rahman (2020).  
+Hate speech is a phenomenon strongly associated to the Internet and, more specifically, to social networks. Hate Speech can be defined as any sort of expression intended to cause offense or harm, basing on ethnicity, sexual orientation, political affiliation, religious beliefs or any other kind of social identifier. This is just a partial definition of the phenomenon, a more detailed explanation can be found on Rahman (2020).  
 ### HASOC
 HASOC is a Shared Task on Hate Speech and Offensive Content Identification in Indo-European Languages, which was launched in 2019 (hasocfire). The task is intended to stimulate research in Hate Speech automatic detection. It is based on 3 annotated datasets for English, German and Hindi languages. The texts were manually annotated by two groups of human supervisors, according to the official paper of the shared task conference (Thomas Mandl et al., 2019).
 The idea for this reasearch stems from a personal interest for automatic analysis of written text extracted from social media and, in general, from a fascination for the idea of social networks as a mirror of people's sentiments that can be more or less automatically analysed.    
 
 ### Hypothesis
-In this paper, I am going to test whether a text that was identified as containing Hate Speech presents different linguistic parameters, such as noun frequency, than a text which does not contain Hate Speech. In a similar fashion, I am going to test the hypothesis that hateful texts contain more misspells than non-hateful texts. Two-sample unpaired t-test will be run on the parameters of the dataset to compare Hate Speech and non-Hate-Speech texts. Further, the parameters are passed to a Random Forest classifier and their *feature importance* is measured. In this research, only English and German datasets were considered, so to simplify the preprocessing part.
-
+In this paper, I am going to test whether a text that was identified as containing Hate Speech presents different linguistic parameters, such as noun frequency, than a text which does not contain Hate Speech. In a similar fashion, I am going to test the hypothesis that hateful texts contain more misspells than non-hateful texts. Two-sample unpaired t-test will be run on the parameters of the dataset to compare Hate Speech and non-Hate-Speech texts. Moreover, I will construct some Logistic Regression models using the dataset features. Further, the parameters will be passed to a Decision Tree and a Random Forest classifier and their *feature importance* will be measured. In this research, only English and German datasets were considered, in order to simplify the preprocessing part.
 
 
 ## 2. Research Design
-Data from HASOC consists of posts that were extracted from Twitter and Facebook for all the three languages, according to keywords and hashtags with offensive content. Texts from the English and German datasets were preprocessed to extract parameters that were then used for statistical testing and for the Random Forest classification model.
+Data from HASOC consists of posts that were extracted from Twitter and Facebook for all the three languages, according to keywords and hashtags with offensive content (hasocfire). Texts from the English and German datasets were preprocessed to extract parameters that were then used for statistical testing and for the classification models.
+
+```{r}
+3951/(3951+2261)
+```
 
 ### Formal hypotheses
-First of all I am going to test whether hateful posts contain more misspells than non-hateful ones. I will test this hypothesis using a two-sample unpaired t-test, as the sample sizes are unequal (2261 for hateful text). The hypothesis is based on the fact that the user writing such hateful posts might be in an emotional state that might lead him or her to mistype some words.
+First of all I am going to test whether hateful posts contain more misspells than non-hateful ones. I will test this hypothesis using a two-sample unpaired t-test, as the sample sizes are unequal (2261 for hateful text). The hypothesis is based on the fact that the user writing such hateful posts might be in an emotional state that could make him or her mistype some words.
 H0: $misspell\_count_{NOT} \lt misspell\_count_{HOF}$,  
 H1: $misspell\_count_{NOT} \gt misspell\_count_{HOF}$,   
 where NOT stands for non-hateful content and HOF for hateful content.  
@@ -43,16 +74,20 @@ Further, I will run an unpaired t-test for every linguistical parameter that was
 H0: $param\_frequency_{NOT} \lt param\_frequency_{HOF}$,  
 H1: $param\_frequency_{NOT} \gt param\_frequency_{HOF}$.  
 
-Eventually, I will train a random forest classifier using the function *cforest* from *party* R library. The parameters passed to the classifier will be the ones which were already presented above in the text (misspells frequency, linguistic param frequency). After that, I will run the *varimp* function on the model to get an overview of the interaction of the parameters.   
+Moreover I will construct three Logistic Regression models for the each dataset, used to predict whether the text is HOF or NOT. The first two models are multiple logistic regression model, the first with features misspell_count and text_length, while the second with features misspell_count, text_length and noun_freq. I will also train a mixed-effect logistic regression model, with the assumption that text_length, misspell_count and noun_freq have both a random (spreading over all the text samples) and a fixed effect (always constant).
+I will use the functions *glm* and *glmer*.
+
+Eventually, I will train a decision tree and a random forest classifier using the functions *ctree* *cforest* from *party* R library. The parameters passed to the classifier will be the ones which were already presented above in the text (misspells frequency, linguistic param frequency). After that, I will run the *varimp* function on the model to get an overview of the interaction of the parameters.   
 
 
 ## 3. Data collection method
 Datasets and Python code used for the preprocessing are accesible through github (link in Bibliography). Datasets for English and German language in tsv format were downloaded directly from the HASOC Shared Task website (link in Bibliography). The posts in the two datasets were further processed using Python.
 
 ### Preprocessing
-Posts from the datasets were cleaned urls and usernames beginning with an address sign (@). Subsequently, punctuation frequency, which is punctuation count over text length was calculated.  
+Posts from the datasets were cleaned from urls, and usernames beginning with an address sign (@). Subsequently, punctuation frequency, which is punctuation count over text length was calculated. A column with text length for each post was also added to both datasets.  
 Later on, I ran a spellchecker on each text using Python library pyspellchecker, which is language independent. The function from this library is based on Peter Norvig's spellchecking algorithm (link to library in Bibligraphy). Misspells were counted and then frequency related to text length was calculated.  
 The last step was running a POS tagger on the posts. For English I used nltk *pos_tag* function. In the table below, an overview of the tags that were included in the groups of nouns, proper nouns, adjectives, and verbs, respectively. Again, the count of each of the 4 group was then divided by the text length.
+
 
 | POS tags | description            |
 |----------|------------------------|
@@ -74,12 +109,7 @@ The last step was running a POS tagger on the posts. For English I used nltk *po
 | VBZ      | verb, present 3rd pers |
 |-----------------------------------|
 
-The same was done for German posts. This time I used Python library HanTa, which contains a function for-POS tagging for German language (link in Bibliography). In the table below an overview of the tags that were considered as nouns, proper nouns, adjectives, or verbs.
-
-nouns_ger = ['NA', 'NN']
-proper_nouns_ger = ['NE']
-adjectives_ger = ['ADJA', 'ADJD']
-verbs_ger = ['VVFIN', 'VVIMP', 'VVINF', 'VVPP']
+The same was done for German posts. In this case, however, I used Python library HanTa, which contains a function for POS-tagging for German language (link in Bibliography). In the table below an overview of the tags that were considered as nouns, proper nouns, adjectives, or verbs.
 
 | POS tags | description            |
 |----------|------------------------|
@@ -100,8 +130,7 @@ verbs_ger = ['VVFIN', 'VVIMP', 'VVINF', 'VVPP']
 All the parameters were organized in two new tsv tables (one for each language) and further used for statistical analysis.
 
 ## 4. Data description
-HASOC datasets were annotated for three different tasks. However, this research is based on the annotation that was produced only for the first of this tasks. Task 1 was offered for all the three languages. According to Mandl T. et al. it is a coarse-grained binary classification in which participants are required to classify posts into two classes,
-namely: Hate and Offensive (HOF) and Non-Hate and offensive (NOT). During the annotation, posts were labeled as HOF if they contained Hate Speech, aggression or profanity, otherwised there were labeled as NOT.  
+HASOC datasets were annotated for three different tasks. However, this research is based on the annotation that was produced only for the first of this tasks. Task 1 was offered for all the three languages. According to Mandl T. et al. it is a coarse-grained binary classification in which participants are required to classify posts into two classes, namely: Hate and Offensive (HOF) and Non-Hate and offensive (NOT). During the annotation, posts were labeled as HOF if they contained Hate Speech, aggression or profanity, otherwised they were labeled as NOT.  
 
 The classes in English and German datasets are unbalanced. As shown by the code below, the English dataset presents 3951 non-offensive posts, and 2261 offensive ones. While the German dataset presents 3411 non-offensive cases, and 407 offensive ones. Further, as stated above in the paper, various parameters were extracted from the texts and presented in the dataframes in the form of relative frequencies, the values of which range from 0 to 1. Absolute text length was also added to the datasets.   
 
@@ -114,9 +143,11 @@ Below the summaries of the datasets follow.
 df_eng <- read.csv("https://raw.githubusercontent.com/lauberto/uni_mydirectory/master/data_analysis/preprocessed_datasets/english_dataset_project.tsv", sep="\t")
 df_eng <- df_eng[df_eng$task_1 != "task_1",]
 df_eng <- droplevels(df_eng)
-df_eng <- subset(df_eng, select = -c(X, text, task_2, task_3))
+df_eng <- subset(df_eng, select = -c(text_id, text, task_2, task_3))
 df_eng["language"] = "eng"
 df_eng$language <- as.factor(df_eng$language)
+df_eng$binary_classification <- ifelse(df_eng$task_1 == "HOF", 1, 0)
+df_eng$binary_classification <- as.factor(df_eng$binary_classification)
 summary(df_eng)
 ```
 
@@ -125,9 +156,11 @@ summary(df_eng)
 df_de <- read.csv("https://raw.githubusercontent.com/lauberto/uni_mydirectory/master/data_analysis/preprocessed_datasets/german_dataset_project.tsv", sep="\t")
 df_de <- df_de[df_de$task_1 != "task_1",]
 df_de <- droplevels(df_de)
-df_de <- subset(df_de, select = -c(X, text, task_2, task_3))
+df_de <- subset(df_de, select = -c(text_id, text, task_2, task_3))
 df_de["language"] = "de"
 df_de$language <- as.factor(df_de$language)
+df_de$binary_classification <- ifelse(df_de$task_1 == "HOF", 1, 0)
+df_de$binary_classification <- as.factor(df_de$binary_classification)
 summary(df_de)
 ```
 
@@ -140,7 +173,7 @@ summary(full_df)
 ## 5. Exploratory data analysis, descriptive statistics and visualization.
 
 ### Parameters correlation visualization
-So to have a general idea of the distribution of data, boxplots of the distribution of various parameters in German and English will be shown. 
+In order to have a general idea of the distribution of data, boxplots of the distribution of various parameters in German and English will be shown. 
 
 *Frequency of misspells*
 ```{r}
@@ -281,11 +314,11 @@ cor.test(df_de$misspell_count, df_de$text_length)
 ```
 
 #### Comment on text length and misspell frequency correlation
-There seems not to be a strong correlation, as correlation tests also show. However, by looking at the graph one has the impression that the longer the text, the less the variance in the value of frequency of misspells. Moreover, there seems not to be a strong difference in how the two parameters are distributed across the two classes of hateful and non-hateful speech.
+There seems not to be a strong correlation between text length and misspell frequency, as correlation tests also show. However, by looking at the graph one has the impression that the longer the text, the smaller the variance in the value of frequency of misspells. Moreover, there seems not to be a strong difference in how the two parameters are distributed across the two classes of hateful and non-hateful speech.
 
 
 ## 6. Statistical tests and modeling results
-As stated above, I will run an unpaired t-test on all the dataset parameters, trying to compare the two classes of hateful and non-hateful posts. First of all, I will present the results regarding the English dataset. When comparing the frequency of mistakes in text I will run a one-tailed t-test, with the null hypothesis that the frequency of mistakes is higher in posts containing Hate Speech, because of the emotional state the user is in when writing the post (check the hypotheses section). Then, I will run a two-tailed t-test when comparing all the other parameter, with the null-hypothesis that parameters are equal both in the HOF subset and the NOT one, to verify whther this assumption holds or not.   
+As stated above, I will run an unpaired t-test on all the dataset parameters, trying to compare the two classes of hateful and non-hateful posts. First of all, I will present the results regarding the English dataset. When comparing the frequency of misspells in the text I will run a one-tailed t-test, with the null hypothesis that the frequency of misspells is higher in posts containing Hate Speech, because of the emotional state the user is in when writing the post (check the hypotheses section). Then, I will run a two-tailed t-test when comparing all the other parameter, with the null-hypothesis that parameters are equal both in the HOF subset and the NOT one, to verify whether this assumption holds or not.   
 
 ### t-testing on the English dataset
 ```{r}
@@ -328,6 +361,9 @@ t.test(df_eng_NOT$adj_freq, df_eng_HOF$adj_freq, var.equal = FALSE)
 ```{r}
 t.test(df_eng_NOT$verb_freq, df_eng_HOF$verb_freq, var.equal = FALSE)
 ```
+#### Comment on t-tests for the English dataset
+Regarding the English datasets, the hypothesis that the quantity of misspells is lower in non-hateful texts does not hold, as the first one-tailed t-test shows. For the other parameters, the null hypothesis about equality of values hold only for proper noun and punctuation frequencies, with p-value = 0.1268 for the former and p-value = 0.06413 for the latter. This means that all the other parameters (text length, noun, adjective and verb frequencies) seem to present a significant difference across the two
+
 
 ### t-testing on the German dataset
 ```{r}
@@ -370,44 +406,240 @@ t.test(df_de_NOT$adj_freq, df_de_HOF$adj_freq, var.equal = FALSE)
 ```{r}
 t.test(df_de_NOT$verb_freq, df_de_HOF$verb_freq, var.equal = FALSE)
 ```
+#### Comment on t-tests for the English dataset
+T-tests on the German dataset present similar results compared to those run on the English dataset. As for English, also for german the null hypothesis stating that there are more misspells in hateful texts must be rejected, given the very high p-value that was obtained. As of the other parameters, only punctuation and adjective frequencies seem to "pass" the test, with p-value = 0.05703 for the former and p-value = 0.6232 for the latter. All the other linguistic parameters, once again, seem not to be representative of a strong distinction between classes, the p-values obtained from testing are way too little.
+
+### Logistic regression for the English dataset
+$$\log(odds(HOF)) = \beta_o + \beta_1 \times misspell\_count + \beta_2 \times text\_length$$
 ```{r}
-# t.test(df_eng_HOF$noun_freq, df_eng_HOF$adj_freq,
-#        paired = TRUE)
+lr1_eng <- glm(binary_classification ~ misspell_count + text_length,
+                data=df_eng, 
+                family="binomial")
+summary(lr1_eng)
 ```
+*log-odd of the coefficients*
 ```{r}
+1/(1+exp(0.267794))
+1/(1+exp(1.777200))
+1/(1+exp(-0.003767))
+```
+*ANOVA and Accuracy test*
+```{r}
+lr1_eng.0 <- glm(binary_classification ~ 1,
+                data=df_eng, 
+                family="binomial")
+anova(lr1_eng, lr1_eng.0, test="Chisq")
+lrAcc(lr1_eng, "binary_classification")
+```
+
+$$\log(odds(HOF)) = \beta_o + \beta_1 \times misspell\_count + \beta_2 \times text\_length + \beta_3 \times noun\_freq$$
+```{r}
+lr2_eng <- glm(binary_classification ~ misspell_count + text_length + noun_freq,
+                data=df_eng, 
+                family="binomial")
+summary(lr2_eng)
 
 ```
+*log-odd of the coefficients*
 ```{r}
+1/(1+exp(-0.204289))
+1/(1+exp(-1.757111))
+1/(1+exp(0.003461))
+1/(1+exp(-0.214158))
+```
+
+*ANOVA and Accuracy test*
+```{r}
+print(anova(lr2_eng, lr1_eng.0, test="Chisq"))
+lrAcc(lr2_eng, "binary_classification")
+```
+
+
+$$logit(P(y_i = 1)) = \beta_0 + \alpha_{0,j[i]} + (\beta_{misspell\_count} + \alpha_{misspell\_count}) \times misspell\_count + (\beta_{text\_length} + \alpha_{text\_length}) \times text\_length$$
+```{r}
+lr1_mer_eng <- glmer(binary_classification ~ misspell_count + text_length +
+                  (1 + misspell_count + text_length||X),
+                data=df_eng, 
+                family="binomial", 
+                control=glmerControl(optimizer = "bobyqa"))
+summary(lr1_mer_eng)
+```
+*log-odd of the coefficients*
+```{r}
+1/(1+exp(0.262533))
+1/(1+exp(1.833173))
+1/(1+exp(-0.003780))
+```
+
+*ANOVA and Accuracy test*
+```{r}
+lr1_mer_eng.0 <- glmer(binary_classification ~ (1|X),
+                data=df_eng, 
+                family="binomial")
+anova(lr1_mer_eng.0, lr1_mer_eng)
+lrAcc(lr1_mer_eng, "binary_classification")
+```
+
+$$logit(P(y_i = 1)) = \beta_0 + \alpha_{0,j[i]} + (\beta_{misspell\_count} + \alpha_{misspell\_count}) \times misspell\_count + (\beta_{text\_length} + \alpha_{text\_length}) \times text\_length + (\beta_{noun\_freq} + \alpha_{noun\_freq}) \times noun\_freq$$
+
+```{r}
+lr2_mer_eng <- glmer(binary_classification ~ misspell_count + text_length + noun_freq +
+                  (1 + misspell_count + text_length + noun_freq||X),
+                data=df_eng, 
+                family="binomial", 
+                control=glmerControl(optimizer = "bobyqa"))
+summary(lr2_mer_eng)
+```
+*log-odd of the coefficients*
+```{r}
+1/(1+exp(-0.190738))
+1/(1+exp(-1.788508))
+1/(1+exp(0.003512))
+1/(1+exp(-0.271794))
+```
+*ANOVA and Accuracy test*
+```{r}
+print(anova(lr1_mer_eng.0, lr2_mer_eng))
+lrAcc(lr2_mer_eng, "binary_classification")
+```
+#### Comment on Logistic models for the English dataset
+First of all, the coefficients of the various models can be interpreted only after calculating the logarith of the odds of the given values. The first intercept log-odd tells us about the probability of a randomly sampled text to be offensive (HOF or 1) in case all the other variables were equal to 0.  
+
+The log-odd of the coefficients of all the other independent variables represent the change in probability for a text to be offensive in case there is a unit-change in the value of the correspondent variable. For instance, in the model lr1, the coefficient of **misspell\_count** is -1.777200, the log-odd of which is 0.1446492. This means that, at every positive unit-change in the value of misspell_count, the text is 14% less probable to be offensive (since the coefficient is negative). This also makes sense when looking at the boxplots and at the mean value of this two parameter - the misspell count is slightly higher in non-offensive texts, contrary to the expectations expressed at the beginning of this research.  
+
+Regarding ANOVA, we can have a picture of the model by looking at the colum "Chisq Chi" (the column is just called "Deviance" for non-mixed-effect models), which, for the model lr1_mer_eng presents the value 62.693. This value expresses the deviance form a model with no added parameters, which means that the parameters we used to trained the model improve the ability of the model to classify the texts.
+
+The four models all present the same value of accuracy, 0.613. Also the results on the ANOVA tests are very similar, the deviance for the models is, respectively, 62.556, 63.077, 62.693, and 63.512. There seems not to be a strong difference between mixed-feature and normal models.
+
+
+### Logistic Regression for the German dataset
+
+$$\log(odds(HOF)) = \beta_o + \beta_1 \times misspell\_count + \beta_2 \times text\_length$$
+```{r}
+lr1_de <- glm(binary_classification ~ misspell_count + text_length,
+                data=df_de, 
+                family="binomial")
+summary(lr1_de)
+
+```
+*log-odd of the coefficients*
+```{r}
+1/(1+exp(2.634780))
+1/(1+exp(0.027701))
+1/(1+exp(-0.018407))
+```
+*ANOVA and Accuracy test*
+```{r}
+lr1_de.0 <- glm(binary_classification ~ 1,
+                data=df_de, 
+                family="binomial")
+anova(lr1_de, lr1_de.0, test="Chisq")
+lrAcc(lr1_de, "binary_classification")
+```
+$$\log(odds(HOF)) = \beta_o + \beta_1 \times misspell\_count + \beta_2 \times text\_length + \beta_3 \times noun\_freq$$
+```{r}
+lr2_de <- glm(binary_classification ~ misspell_count + text_length + noun_freq,
+                data=df_de, 
+                family="binomial")
+summary(lr2_de)
+```
+*log-odd of the coefficients*
+```{r}
+1/(1+exp(2.442074))
+1/(1+exp(-0.051506))
+1/(1+exp(-0.019909))
+1/(1+exp(2.348986))
+```
+*ANOVA and Accuracy test*
+```{r}
+print(anova(lr2_de, lr1_de.0, test="Chisq"))
+lrAcc(lr2_de, "binary_classification")
+```
+
+
+$$logit(P(y_i = 1)) = \beta_0 + \alpha_{0,j[i]} + (\beta_{misspell\_count} + \alpha_{misspell\_count}) \times misspell\_count + (\beta_{text\_length} + \alpha_{text\_length}) \times text\_length$$
+```{r}
+lr1_mer_de <- glmer(binary_classification ~ misspell_count + text_length +
+                  (1 + misspell_count + text_length||X),
+                data=df_de, 
+                family="binomial", 
+                control=glmerControl(optimizer = "bobyqa"))
+summary(lr1_mer_de)
+```
+
+
+```{r}
+lr1_mer_de.0 <- glmer(binary_classification ~ (1|X),
+                data=df_de, 
+                family="binomial")
+anova(lr1_mer_de.0, lr1_mer_de)
+lrAcc(lr1_mer_de, "binary_classification")
 
 ```
 
-### two-sample t-test on misspell count for English language
-<!-- H0: $misspell\_count_{NOT} \lt misspellcount_{HOF}$ -->
-<!-- H1: $misspell\_count_{NOT} \gt misspellcount_{HOF}$ -->
+$$logit(P(y_i = 1)) = \beta_0 + \alpha_{0,j[i]} + (\beta_{misspell\_count} + \alpha_{misspell\_count}) \times misspell\_count + (\beta_{text\_length} + \alpha_{text\_length}) \times text\_length + (\beta_{noun\_freq} + \alpha_{noun\_freq}) \times noun\_freq$$
 ```{r}
-df_eng_HOF <- df_eng[df_eng$task_1 == "HOF",]
-df_eng_NOT <- df_eng[df_eng$task_1 == "NOT",]
-t.test(df_eng_NOT$misspell_count, df_eng_HOF$misspell_count, alternative = "less", var.equal = FALSE)#, alternative="less")
+lr2_mer_de <- glmer(binary_classification ~ misspell_count + text_length + noun_freq +
+                  (1 + misspell_count + text_length + noun_freq||X),
+                data=df_de, 
+                family="binomial", 
+                control=glmerControl(optimizer = "bobyqa"))
+summary(lr2_mer_de)
 ```
-```{r}
-df_de_HOF <- df_de[df_de$task_1 == "HOF",]
-df_de_NOT <- df_de[df_de$task_1 == "NOT",]
-t.test(df_de_NOT$misspell_count, df_de_HOF$misspell_count, alternative = "less", var.equal = FALSE)#, alternative="less")
-```
-```{r}
-fit_eng <- cforest(task_1~misspell_count+noun_freq, data = df_eng, controls=cforest_unbiased(ntree=100, mtry=2))
-plot(fit_eng)
-# print(varimp(fit_eng))
 
-# predict(fit_eng, newdata = data.frame(misspell_count = 0.4, noun_freq = 0.3),OOB=TRUE)
-```
 ```{r}
-fit_eng_tree <- ctree(task_1~misspell_count+noun_freq, data = df_eng)
+anova(lr1_mer_de.0, lr2_mer_de)
+lrAcc(lr2_mer_de, "binary_classification")
+```
+#### Comment on Logistic models for the German dataset
+The coefficients of the various models can be interpreted in the same way as for the models constructed on the English database. For instance, in the model lr1_de the coefficient for text length is equal to 0.018407, meaning that there is an increase in the probability for the text to be offensive at every positive unit-step. This, again, makes sense if we look at the boxplot that was presented above for text length. 
+
+Similarly, the Accuracy results are not too different, when we compare different models - 0.8934. Regarding the ANOVA tests, we can observe how adding parameters to the model positively influence its performance. We noticed the same in the models for English.
+
+The mixed-feature models failed to converge for German language. 
+
+### Decision Tree and Random Forest classifier for the English dataset
+```{r}
+fit_eng_tree <- ctree(task_1~misspell_count+punct_freq+adj_freq+propnoun_freq+verb_freq+text_length+noun_freq, data = df_eng)
 plot(fit_eng_tree)
-summary(df_eng)
-
-# predict(fit_eng, newdata = data.frame(misspell_count = 0.4, noun_freq = 0.3),OOB=TRUE)
 ```
+
+```{r}
+fit_eng_forest <- cforest(task_1~misspell_count+text_length+noun_freq+punct_freq+adj_freq+propnoun_freq+verb_freq, data = df_eng, controls=cforest_unbiased(ntree=100, mtry=2))
+varimp(fit_eng_forest)
+```
+#### Comment on Decision Tree and Random Forest Classifier for English
+By looking at the Decision Tree and Random Forest Classifier models, we can have a broader picture of the interaction between parameters. As we can see in the above picture, the Decision Tree algorithm divides the data points into five groups, taking into consideration the value of three parameters: misspell_count, noun_freq and text_length. However, we can notice that the 5 groups are very miscellaneous, ther is no sharp distinction among them. In Node 5, for instance, there is no prevalence of either class.  
+
+On the other hand, the Random Forest Classifier assigns weights to the variables. The top-3 variables appear to be misspell_count, noun_freq and verb_freq. This is consistent with the interpretation we previously gave to the frequency of misspells in the texts.  
+
+### Decision Tree and Random Forest classifier for the German dataset
+```{r}
+fit_de_tree <- ctree(task_1~misspell_count+text_length+noun_freq, data = df_de)
+plot(fit_de_tree)
+```
+
+```{r}
+fit_de_forest <- cforest(task_1~misspell_count+text_length+noun_freq+punct_freq+adj_freq+propnoun_freq+verb_freq, data = df_de, controls=cforest_unbiased(ntree=100, mtry=2))
+varimp(fit_de_forest)
+```
+
+#### Comment on Decision Tree and Random Forest Classifier for German
+By looking at the graph, there is always a prevalence of non-offensive texts in the three groups that the algorithm identifies. This, unfortunately, is due to a strong imbalance between the two classes.  
+
+The Random Forest Classifier identifies text_length, punct_freq and noun_freq as the top-3 features. This is consistent with the interpretation we gave to text_length for German texts.
+
+## 7.Conclusions
+The data used for this research was taken from HASOC datasets. The texts are classified as Hate Speech or non-Hate-Speech. This brief reasearch provides a statistical analysis around some linguistical characteristics of the texts of the datasets, such as frequency of misspells or nouns. I tested the hypothesis that non-offensive texts contain fewer misspells than offensive one, because of the emotional state of the writer. Moreover, I tested the importance of difference parameters for in classifying the texts. The paper provides a visualisation of the data, along with a description of it, the results of the t-tests, and some observations on three classification models: Logistic Regression, Decision Tree, and Random Forest Classifier.  
+
+Data visualization and statistical testing provide similar picture of how data interelates. Apparently, there is no evidence to state that fewer misspells correspond to a less offensive text. T-testing on the datasets of both German and English seems to point to the opposite conclusion, instead: the more the misspells, the greater the probability that the text is not offensive. The null hypothesis is thus rejected.  
+
+Parameters other than misspells seem not to provide much information on the nature of the text. It must be noted that for classifying English texts, proper noun and punctuation frequencies seem to be the most salient features, according to t-testing. Same holds for punctuation and adjective frequencies in German texts.  
+
+In general, classification methods seem to point in the direction that few linguistical parameters (of those which I selected) are important in classifying the text as offensive or not: text length, frequency of misspells, and freqeuncy of nouns. In general it can be stated that the parameters used for the models are insufficient to properly classify the text as offensive or not. This is probably related to the instrinsic difficulty of defining "offense". Apparently, it is not sufficient to determing the length of the text and a few other statistics in order to classify it. If we look at the winners of the original competition, they all deployed very sofisticated NLP techniques to classify the texts.
+
+Moreover, the fact that the hypothesis about misspell frequency was rejected also points in the fact that the task of hate speech detection requires more finely tuned techniques to be dealt with. 
+
 # Bibliography
  * hasocfire, https://hasocfire.github.io/hasoc/2019/call_for_participation.html
  * Rahman, Md Ataur (2020). “Exploring Features for Multi-label Hate Speech Detection.”
